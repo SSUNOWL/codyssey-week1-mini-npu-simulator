@@ -1,4 +1,4 @@
-# 🧮 Mini NPU Simulator — MAC 연산으로 Cross / X 판별하기
+#  Mini NPU Simulator — MAC 연산으로 Cross / X 판별하기
 
 컴퓨터가 '모양'을 숫자로만 인식한다는 점에서 출발해, **MAC(Multiply-Accumulate)** 연산으로
 N×N 패턴이 십자가(Cross)인지 X인지 판별하는 콘솔 시뮬레이터. NumPy 없이 **표준 라이브러리 + 반복문**으로만
