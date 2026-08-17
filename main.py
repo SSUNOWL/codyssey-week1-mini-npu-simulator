@@ -152,6 +152,30 @@ def generate_x(n):
 # =========================================================================
 # 7. 모드1 입력 — 한 줄씩(공백 구분) 받아 검증하고 재입력을 유도한다.
 # =========================================================================
+def ask(text):
+    """EOF(파이프 입력 종료)에서도 트레이스백 없이 끝나도록 감싼 input()."""
+    try:
+        return input(text).strip()
+    except EOFError:
+        raise SystemExit("\n입력이 종료되었습니다.")
+
+
+def ask_choice(text, valid, default="1"):
+    """허용된 선택지만 받는다. 엔터는 default, 그 밖의 값은 안내 후 재입력."""
+    while True:
+        answer = ask(text) or default
+        if answer in valid:
+            return answer
+        print("선택 오류: %s 중에서 입력하세요. (다시 입력)" % " / ".join(valid))
+
+
+def print_matrix(name, matrix):
+    """생성기로 만든 행렬을 사용자가 눈으로 확인할 수 있게 출력한다."""
+    print("%s:" % name)
+    for row in matrix.rows:
+        print("  " + " ".join("%g" % v for v in row))
+
+
 def read_matrix(name, n):
     """n줄을 입력받아 n×n Matrix로. 형식 오류 시 안내 후 처음부터 재입력."""
     print("%s (%d줄 입력, 공백 구분)" % (name, n))
@@ -200,14 +224,30 @@ def run_mode1():
     print("\n#----------------------------------------")
     print("# [1] 필터 입력")
     print("#----------------------------------------")
-    filter_a = read_matrix("필터 A", n)
-    filter_b = read_matrix("필터 B", n)
+    # 보너스(패턴 생성기)를 모드1에서도 재활용한다. 기본값(엔터/1)은 직접 입력.
+    print("1. 직접 입력   2. 생성기로 자동 생성 (A=Cross, B=X)")
+    if ask_choice("선택[1]: ", ("1", "2")) == "2":
+        filter_a, filter_b = generate_cross(n), generate_x(n)
+        print_matrix("필터 A (생성기 Cross)", filter_a)
+        print_matrix("필터 B (생성기 X)", filter_b)
+    else:
+        filter_a = read_matrix("필터 A", n)
+        filter_b = read_matrix("필터 B", n)
     print("필터 A, B 저장 완료.")
 
     print("\n#----------------------------------------")
     print("# [2] 패턴 입력")
     print("#----------------------------------------")
-    pattern = read_matrix("패턴", n)
+    print("1. 직접 입력   2. 생성기 Cross   3. 생성기 X")
+    choice = ask_choice("선택[1]: ", ("1", "2", "3"))
+    if choice == "2":
+        pattern = generate_cross(n)
+        print_matrix("패턴 (생성기 Cross)", pattern)
+    elif choice == "3":
+        pattern = generate_x(n)
+        print_matrix("패턴 (생성기 X)", pattern)
+    else:
+        pattern = read_matrix("패턴", n)
 
     print("\n#----------------------------------------")
     print("# [3] MAC 결과")
@@ -346,16 +386,13 @@ def run_mode2(path=DATA_FILE):
             print("Cross 점수: %s" % fmt_score(score_cross))
             print("X 점수: %s" % fmt_score(score_x))
             if verdict == UNDECIDED:
-                result = "FAIL"
                 reason = "동점(UNDECIDED) 처리 규칙 — |Cross-X| < %g" % EPS
                 failures.append((key, reason))
                 print("판정: UNDECIDED | expected: %s | FAIL (동점 규칙)" % expected)
             elif verdict == expected:
-                result = "PASS"
                 pass_count += 1
                 print("판정: %s | expected: %s | PASS" % (verdict, expected))
             else:
-                result = "FAIL"
                 reason = "판정(%s) != expected(%s)" % (verdict, expected)
                 failures.append((key, reason))
                 print("판정: %s | expected: %s | FAIL" % (verdict, expected))
@@ -392,10 +429,7 @@ def main():
     print("\n[모드 선택]")
     print("1. 사용자 입력 (3x3)")
     print("2. data.json 분석")
-    try:
-        choice = input("선택: ").strip()
-    except EOFError:
-        raise SystemExit("입력이 종료되었습니다.")
+    choice = ask("선택: ")
 
     if choice == "1":
         run_mode1()
