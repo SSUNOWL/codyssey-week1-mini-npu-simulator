@@ -68,7 +68,7 @@ def normalize_expected(symbol):
         return CROSS
     if s == "x":
         return X
-    raise ValueError("알 수 없는 expected 값: %r" % symbol)
+    raise ValueError("알 수 없는 expected 값: %r (허용: '+', 'x')" % symbol)
 
 
 def normalize_filter_label(key):
@@ -78,7 +78,7 @@ def normalize_filter_label(key):
         return CROSS
     if s == "x":
         return X
-    raise ValueError("알 수 없는 필터 라벨: %r" % key)
+    raise ValueError("알 수 없는 필터 라벨: %r (허용: 'cross', 'x')" % key)
 
 
 # =========================================================================
@@ -91,11 +91,14 @@ def mac_2d(pattern, filt):
             "크기 불일치: 패턴 %dx%d vs 필터 %dx%d"
             % (pattern.size, pattern.size, filt.size, filt.size)
         )
+    # 예: 패턴 행 [0,1,0] 과 필터 행 [0,1,0] 이면 0*0 + 1*1 + 0*0 = 1 이 누적된다.
     n = pattern.size
     score = 0.0
     for i in range(n):
         prow, frow = pattern.rows[i], filt.rows[i]
         for j in range(n):
+            # 이 안쪽 루프가 전체 비용의 대부분(N^2회)이며 CPU 직렬 처리의 병목이다.
+            # NPU는 바로 이 곱셈·누적을 수천 개 동시에 수행해 시간을 줄인다.
             score += prow[j] * frow[j]   # 곱하고 누적
     return score
 
@@ -261,7 +264,7 @@ def run_mode1():
     print("B 점수: %s" % fmt_score(score_b))
     print("연산 시간(평균/%d회): %.4f ms" % (REPEAT, avg_ms))
     if verdict == UNDECIDED:
-        print("판정: 판정 불가 (|A-B| < %g)" % EPS)
+        print("판정: 판정 불가 (|A-B| = %.3e < EPS %g)" % (abs(score_a - score_b), EPS))
     else:
         print("판정: %s" % verdict)
 
@@ -308,14 +311,15 @@ def sort_pattern_key(key):
 # 11. 성능 분석 표 (크기 / 평균시간 / 연산횟수 N²)
 # =========================================================================
 def performance_table(sizes):
-    print("크기       평균 시간(ms)    연산 횟수(N^2)")
-    print("--------------------------------------------")
+    print("크기       평균 시간(ms)    연산 횟수(N^2)   원소당(ns)")
+    print("-------------------------------------------------------")
     for n in sizes:
         pattern = generate_x(n)
         filt = generate_cross(n)
         avg_ms = measure_ms(lambda: mac_2d(pattern, filt))
         label = "%d×%d" % (n, n)
-        print("%-10s %-14.4f %d" % (label, avg_ms, n * n))
+        # 원소당 비용 = 평균 시간 / N^2. N이 커질수록 이 값이 수렴하면 시간이 N^2에 비례한다는 근거가 된다.
+        print("%-10s %-16.4f %-16d %.1f" % (label, avg_ms, n * n, avg_ms * 1e6 / (n * n)))
 
 
 def bonus_compare_1d_2d(n=25):
@@ -386,7 +390,8 @@ def run_mode2(path=DATA_FILE):
             print("Cross 점수: %s" % fmt_score(score_cross))
             print("X 점수: %s" % fmt_score(score_x))
             if verdict == UNDECIDED:
-                reason = "동점(UNDECIDED) 처리 규칙 — |Cross-X| < %g" % EPS
+                reason = ("동점(UNDECIDED) 처리 규칙 — |Cross-X| = %.3e < EPS %g"
+                          % (abs(score_cross - score_x), EPS))
                 failures.append((key, reason))
                 print("판정: UNDECIDED | expected: %s | FAIL (동점 규칙)" % expected)
             elif verdict == expected:
@@ -413,7 +418,7 @@ def run_mode2(path=DATA_FILE):
     print("#----------------------------------------")
     fail_count = total - pass_count
     print("총 테스트: %d개" % total)
-    print("통과: %d개" % pass_count)
+    print("통과: %d개 (%.1f%%)" % (pass_count, pass_count / total * 100.0 if total else 0.0))
     print("실패: %d개" % fail_count)
     if failures:
         print("\n실패 케이스:")
