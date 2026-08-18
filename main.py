@@ -21,7 +21,9 @@ for _stream in (sys.stdout, sys.stdin):
 
 # --- 정책 상수 -------------------------------------------------------------
 EPS = 1e-9              # 점수 동점 판정 허용오차(부동소수점 오차 흡수)
-REPEAT = 10            # 성능 측정 반복 횟수(각 크기별 평균)
+REPEAT = 10            # 성능 측정 반복 횟수(각 크기별 평균) — 미션이 요구한 최소 기준
+BONUS_REPEAT = 50      # 2D/1D 비교 전용 반복 횟수. 두 방식의 차이가 1/N 수준으로 작아
+                       # 10회로는 측정 노이즈에 묻히므로 더 많이 잰다.
 CROSS, X, UNDECIDED = "Cross", "X", "UNDECIDED"
 DATA_FILE = "data.json"
 
@@ -134,6 +136,20 @@ def measure_ms(func, repeat=REPEAT):
         func()
         total += time.perf_counter() - start
     return (total / repeat) * 1000.0   # 초 → ms
+
+
+def measure_stats(func, repeat=REPEAT):
+    """func()의 (평균 ms, 최소 ms)를 함께 반환한다.
+    최소값은 방해를 가장 덜 받은 실행이므로, 평균과 최소의 간격이 곧 측정 노이즈 폭이다."""
+    total = 0.0
+    best = None
+    for _ in range(repeat):
+        start = time.perf_counter()
+        func()
+        elapsed = time.perf_counter() - start
+        total += elapsed
+        best = elapsed if best is None else min(best, elapsed)
+    return (total / repeat) * 1000.0, best * 1000.0
 
 
 # =========================================================================
@@ -322,18 +338,35 @@ def performance_table(sizes):
         print("%-10s %-16.4f %-16d %.1f" % (label, avg_ms, n * n, avg_ms * 1e6 / (n * n)))
 
 
-def bonus_compare_1d_2d(n=25):
-    """보너스: 동일 입력에 대해 2D vs 1D(평탄화) MAC 성능 비교."""
-    pattern = generate_x(n)
-    filt = generate_cross(n)
-    flat_p, flat_f = pattern.to_flat(), filt.to_flat()
-    ms_2d = measure_ms(lambda: mac_2d(pattern, filt))
-    ms_1d = measure_ms(lambda: mac_1d(flat_p, flat_f))
-    print("\n#----------------------------------------")
-    print("# [보너스] 2D vs 1D(평탄화) 성능 비교 (%d×%d, %d회 평균)" % (n, n, REPEAT))
+def bonus_compare_1d_2d(sizes=(5, 13, 25), repeat=BONUS_REPEAT):
+    """보너스: 동일 입력·동일 반복으로 2D와 1D(평탄화) MAC 시간을 비교한다.
+
+    비교 결과를 읽는 기준 두 가지를 함께 출력한다.
+    - 이론 이득(1/N): 1D가 아끼는 것은 바깥 루프(N회)뿐이라 기대 이득이 대략 1/N 이다.
+    - to_flat 비용: 평탄화는 측정 구간 밖이다(한 번 변환해 여러 번 쓴다고 가정).
+    """
+    print("")
     print("#----------------------------------------")
-    print("2D 접근: %.4f ms" % ms_2d)
-    print("1D 접근: %.4f ms" % ms_1d)
+    print("# [보너스] 2D vs 1D(평탄화) 성능 비교 (%d회 반복)" % repeat)
+    print("#----------------------------------------")
+    print("크기       2D 평균/최소(ms)      1D 평균/최소(ms)      1D/2D  이론이득(1/N)  to_flat(ms)")
+    print("-" * 94)
+    for n in sizes:
+        pattern = generate_x(n)
+        filt = generate_cross(n)
+        flat_p, flat_f = pattern.to_flat(), filt.to_flat()
+        avg_2d, min_2d = measure_stats(lambda: mac_2d(pattern, filt), repeat)
+        avg_1d, min_1d = measure_stats(lambda: mac_1d(flat_p, flat_f), repeat)
+        avg_flat, _ = measure_stats(lambda: pattern.to_flat(), repeat)
+        print("%-10s %-21s %-21s %-6.2f %-14s %.4f"
+              % ("%d×%d" % (n, n),
+                 "%.4f / %.4f" % (avg_2d, min_2d),
+                 "%.4f / %.4f" % (avg_1d, min_1d),
+                 avg_1d / avg_2d,
+                 "%.1f%%" % (100.0 / n),
+                 avg_flat))
+    print("* to_flat 은 측정에 포함하지 않았다. 매 호출마다 변환한다면 그 비용만큼 1D가 불리해진다.")
+    print("* 평균과 최소의 간격이 측정 노이즈 폭이다. 이 폭이 이론이득(1/N)보다 크면 순위는 실행마다 뒤집힌다.")
 
 
 # =========================================================================
@@ -411,7 +444,7 @@ def run_mode2(path=DATA_FILE):
     print("# [3] 성능 분석 (평균/%d회)" % REPEAT)
     print("#----------------------------------------")
     performance_table([3, 5, 13, 25])
-    bonus_compare_1d_2d(25)
+    bonus_compare_1d_2d()
 
     print("\n#----------------------------------------")
     print("# [4] 결과 요약")
